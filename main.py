@@ -1,42 +1,31 @@
 import os
+import uvicorn
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from langserve import add_routes
 
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import StateGraph, START, END
+from langchain.agents import create_agent
 
-from typing import TypedDict
-
-
-# =========================
-# Gemini Configuration
-# =========================
-
-api_key = os.getenv("GEMINI_API_KEY")
-
-if not api_key:
-    raise ValueError("GEMINI_API_KEY environment variable is not set.")
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-3.6-flash",
-    google_api_key=api_key
-)
+from pydantic import BaseModel, Field
+from langchain_core.runnables import RunnableLambda
 
 
-# =========================
-# CareerPilot Tools
-# =========================
+# ============================================================
+# 1. DEFINE CAREERPILOT TOOLS
+# ============================================================
 
 @tool
-def generate_dsa_questions(topic: str):
-    """Generate 5 placement-level DSA questions."""
+def generate_dsa_questions(topic: str) -> str:
+    """Generate placement-level DSA questions based on a topic."""
 
     prompt = f"""
 You are CareerPilot AI, an AI placement preparation assistant.
 
-Generate 5 DSA questions on {topic}.
+Generate 5 DSA questions on the following topic:
+
+{topic}
 
 Difficulty:
 - 2 Easy
@@ -49,6 +38,8 @@ For every question provide:
 3. Expected concept
 
 Do not provide solutions.
+
+Keep the questions suitable for college placement preparation.
 """
 
     response = llm.invoke(prompt)
@@ -56,8 +47,8 @@ Do not provide solutions.
 
 
 @tool
-def generate_java_questions(topic: str):
-    """Generate 5 placement-level Java interview questions."""
+def generate_java_questions(topic: str) -> str:
+    """Generate placement-level Java interview questions."""
 
     prompt = f"""
 You are CareerPilot AI, an expert Java placement interviewer.
@@ -76,7 +67,7 @@ For every question provide:
 2. Difficulty
 3. Expected concept
 
-Focus on concepts commonly tested in technical interviews.
+Focus on concepts commonly tested in Java technical interviews.
 
 Do not provide solutions.
 """
@@ -86,8 +77,8 @@ Do not provide solutions.
 
 
 @tool
-def evaluate_answer(question: str, student_answer: str):
-    """Evaluate a student's placement interview answer."""
+def evaluate_answer(question: str, student_answer: str) -> str:
+    """Evaluate a student's answer to a placement interview question."""
 
     prompt = f"""
 You are a technical interviewer evaluating a student.
@@ -115,13 +106,13 @@ Be honest but beginner-friendly.
 
 
 @tool
-def create_study_plan(goal: str, days: int):
-    """Create a day-by-day placement preparation plan."""
+def create_study_plan(goal: str, days: int) -> str:
+    """Create a practical day-by-day placement preparation plan."""
 
     prompt = f"""
 You are CareerPilot AI, an AI placement preparation assistant.
 
-Create a practical study plan.
+Create a practical placement preparation study plan.
 
 Goal:
 {goal}
@@ -137,235 +128,217 @@ For each day include:
 4. Revision task
 
 Keep the plan realistic for a college student.
+Gradually increase the difficulty.
 """
 
     response = llm.invoke(prompt)
     return response.text
 
 
-# =========================
-# State
-# =========================
+# ============================================================
+# 2. INITIALIZE GEMINI
+# ============================================================
 
-class CareerPilotState(TypedDict):
-    user_request: str
-    question: str
-    student_answer: str
-    response: str
+GOOGLE_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-
-# =========================
-# Manager
-# =========================
-
-def careerpilot_manager(state: CareerPilotState):
-
-    user_request = state["user_request"]
-
-    prompt = f"""
-You are CareerPilot AI, an AI placement preparation manager.
-
-Student request:
-{user_request}
-
-Decide which capability is needed.
-
-Available capabilities:
-
-1. DSA_QUESTIONS
-2. JAVA_QUESTIONS
-3. EVALUATE_ANSWER
-4. STUDY_PLAN
-5. GENERAL_GUIDANCE
-
-Return ONLY one of:
-
-DSA_QUESTIONS
-JAVA_QUESTIONS
-EVALUATE_ANSWER
-STUDY_PLAN
-GENERAL_GUIDANCE
-"""
-
-    response = llm.invoke(prompt)
-
-    return {
-        "response": response.text.strip()
-    }
+if not GOOGLE_API_KEY:
+    raise ValueError("GEMINI_API_KEY environment variable is not set.")
 
 
-# =========================
-# Agents
-# =========================
-
-def dsa_agent(state: CareerPilotState):
-
-    result = generate_dsa_questions.invoke({
-        "topic": state["user_request"]
-    })
-
-    return {"response": result}
-
-
-def java_agent(state: CareerPilotState):
-
-    result = generate_java_questions.invoke({
-        "topic": state["user_request"]
-    })
-
-    return {"response": result}
-
-
-def evaluator_agent(state: CareerPilotState):
-
-    result = evaluate_answer.invoke({
-        "question": state["question"],
-        "student_answer": state["student_answer"]
-    })
-
-    return {"response": result}
-
-
-def study_planner_agent(state: CareerPilotState):
-
-    prompt = f"""
-You are CareerPilot AI.
-
-The student wants a study plan.
-
-Student request:
-{state["user_request"]}
-
-Create a practical placement preparation study plan.
-
-If the student gives a number of days, use that number.
-If no number of days is given, create a 7-day plan.
-
-For each day include:
-1. Study
-2. Practice
-3. Coding
-4. Revision
-
-Keep it realistic for a college student.
-"""
-
-    response = llm.invoke(prompt)
-
-    return {"response": response.text}
-
-
-def general_agent(state: CareerPilotState):
-
-    prompt = f"""
-You are CareerPilot AI, a placement preparation assistant.
-
-Student request:
-{state["user_request"]}
-
-Give a clear, practical and beginner-friendly answer.
-Focus on placement preparation.
-"""
-
-    response = llm.invoke(prompt)
-
-    return {"response": response.text}
-
-
-# =========================
-# Router
-# =========================
-
-def route_request(state: CareerPilotState):
-
-    decision = state["response"].strip()
-
-    if decision == "DSA_QUESTIONS":
-        return "dsa_agent"
-
-    elif decision == "JAVA_QUESTIONS":
-        return "java_agent"
-
-    elif decision == "EVALUATE_ANSWER":
-        return "evaluator_agent"
-
-    elif decision == "STUDY_PLAN":
-        return "study_planner_agent"
-
-    return "general_agent"
-
-
-# =========================
-# LangGraph
-# =========================
-
-workflow = StateGraph(CareerPilotState)
-
-workflow.add_node("manager", careerpilot_manager)
-workflow.add_node("dsa_agent", dsa_agent)
-workflow.add_node("java_agent", java_agent)
-workflow.add_node("evaluator_agent", evaluator_agent)
-workflow.add_node("study_planner_agent", study_planner_agent)
-workflow.add_node("general_agent", general_agent)
-
-workflow.add_edge(START, "manager")
-
-workflow.add_conditional_edges(
-    "manager",
-    route_request,
-    {
-        "dsa_agent": "dsa_agent",
-        "java_agent": "java_agent",
-        "evaluator_agent": "evaluator_agent",
-        "study_planner_agent": "study_planner_agent",
-        "general_agent": "general_agent"
-    }
+llm = ChatGoogleGenerativeAI(
+    model="gemini-3.6-flash",
+    api_key=GOOGLE_API_KEY,
+    temperature=0
 )
 
-workflow.add_edge("dsa_agent", END)
-workflow.add_edge("java_agent", END)
-workflow.add_edge("evaluator_agent", END)
-workflow.add_edge("study_planner_agent", END)
-workflow.add_edge("general_agent", END)
 
-careerpilot = workflow.compile()
+# ============================================================
+# 3. CREATE CAREERPILOT AGENT
+# ============================================================
+
+tools = [
+    generate_dsa_questions,
+    generate_java_questions,
+    evaluate_answer,
+    create_study_plan
+]
 
 
-# =========================
-# FastAPI
-# =========================
+agent = create_agent(
+    model=llm,
+    tools=tools,
+    system_prompt="""
+You are CareerPilot AI, an AI placement preparation assistant.
+
+Your purpose is to help students prepare for technical placements.
+
+You have access to these capabilities:
+
+1. DSA Question Generator
+   - Arrays
+   - Strings
+   - Linked Lists
+   - Stacks
+   - Queues
+   - Trees
+   - Graphs
+   - Sorting
+   - Searching
+   - Algorithms
+   - Coding questions
+
+2. Java Interview Question Generator
+   - OOP
+   - Classes and objects
+   - Inheritance
+   - Polymorphism
+   - Abstraction
+   - Encapsulation
+   - Collections
+   - Exceptions
+   - Multithreading
+   - Strings
+   - Other Java interview concepts
+
+3. Answer Evaluator
+   - Evaluate technical interview answers
+   - Identify mistakes
+   - Explain missing concepts
+   - Give interview tips
+   - Give a score out of 10
+
+4. Study Planner
+   - Placement preparation plans
+   - Day-by-day schedules
+   - DSA + Java preparation plans
+   - Revision plans
+
+Use the appropriate tool whenever the student's request matches one
+of these capabilities.
+
+For general placement-related questions, answer directly.
+
+Keep responses clear, practical and beginner-friendly.
+"""
+)
+
+
+# ============================================================
+# 4. FORMAT INPUT FOR THE AGENT
+# ============================================================
+
+class AgentInput(BaseModel):
+    input: str = Field(description="Your message to CareerPilot")
+
+
+def format_for_agent(x) -> dict:
+
+    user_input = x["input"] if isinstance(x, dict) else x.input
+
+    return {
+        "messages": [
+            ("user", user_input)
+        ]
+    }
+
+
+# ============================================================
+# 5. EXTRACT FINAL RESPONSE
+# ============================================================
+
+def extract_text_response(agent_output: dict) -> str:
+
+    if not isinstance(agent_output, dict):
+        return str(agent_output)
+
+    messages = agent_output.get("messages")
+
+    if messages is None:
+
+        for value in agent_output.values():
+
+            if isinstance(value, dict) and "messages" in value:
+
+                messages = value["messages"]
+                break
+
+    if messages:
+
+        last = messages[-1]
+
+        return getattr(
+            last,
+            "content",
+            str(last)
+        )
+
+    return str(agent_output)
+
+
+# ============================================================
+# 6. CREATE LANGSERVE CHAIN
+# ============================================================
+
+formatted_agent_chain = (
+    RunnableLambda(format_for_agent)
+    | agent
+    | RunnableLambda(extract_text_response)
+).with_types(
+    input_type=AgentInput,
+    output_type=str
+)
+
+
+# ============================================================
+# 7. FASTAPI APPLICATION
+# ============================================================
 
 app = FastAPI(
     title="CareerPilot AI",
-    description="AI Placement Preparation Agent",
-    version="1.0"
+    version="1.0",
+    description=(
+        "An AI placement preparation agent "
+        "using Gemini, LangChain tools and LangServe."
+    )
 )
 
 
-class CareerPilotRequest(BaseModel):
-    user_request: str
-    question: str = ""
-    student_answer: str = ""
-
-
 @app.get("/")
-def home():
+def root():
+
     return {
         "message": "CareerPilot AI is running!",
-        "status": "online"
+        "website": "/agent/playground/",
+        "docs": "/docs"
     }
 
 
-@app.post("/ask")
-def ask_careerpilot(request: CareerPilotRequest):
+# ============================================================
+# 8. ADD LANGSERVE ROUTE
+# ============================================================
 
-    result = careerpilot.invoke({
-        "user_request": request.user_request,
-        "question": request.question,
-        "student_answer": request.student_answer,
-        "response": ""
-    })
+add_routes(
+    app,
+    formatted_agent_chain,
+    path="/agent"
+)
 
-    return {
-        "response": result["response"]
-    }
+
+# ============================================================
+# 9. RUN APPLICATION
+# ============================================================
+
+if __name__ == "__main__":
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            8000
+        )
+    )
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port
+    )
