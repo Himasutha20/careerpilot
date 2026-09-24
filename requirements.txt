@@ -1,9 +1,9 @@
 fastapi
 uvicorn
 langserve
-sse-starlette
 langchain
 langchain-core
 langgraph
 langchain-google-genai
 pydantic
+sse_starlette

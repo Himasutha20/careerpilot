@@ -13,137 +13,13 @@ from langchain_core.runnables import RunnableLambda
 
 
 # ============================================================
-# 1. DEFINE CAREERPILOT TOOLS
-# ============================================================
-
-@tool
-def generate_dsa_questions(topic: str) -> str:
-    """Generate placement-level DSA questions based on a topic."""
-
-    prompt = f"""
-You are CareerPilot AI, an AI placement preparation assistant.
-
-Generate 5 DSA questions on the following topic:
-
-{topic}
-
-Difficulty:
-- 2 Easy
-- 2 Medium
-- 1 Interview-level
-
-For every question provide:
-1. Question
-2. Difficulty
-3. Expected concept
-
-Do not provide solutions.
-
-Keep the questions suitable for college placement preparation.
-"""
-
-    response = llm.invoke(prompt)
-    return response.text
-
-
-@tool
-def generate_java_questions(topic: str) -> str:
-    """Generate placement-level Java interview questions."""
-
-    prompt = f"""
-You are CareerPilot AI, an expert Java placement interviewer.
-
-Generate 5 Java interview questions on:
-
-{topic}
-
-Difficulty:
-- 2 Easy
-- 2 Medium
-- 1 Interview-level
-
-For every question provide:
-1. Question
-2. Difficulty
-3. Expected concept
-
-Focus on concepts commonly tested in Java technical interviews.
-
-Do not provide solutions.
-"""
-
-    response = llm.invoke(prompt)
-    return response.text
-
-
-@tool
-def evaluate_answer(question: str, student_answer: str) -> str:
-    """Evaluate a student's answer to a placement interview question."""
-
-    prompt = f"""
-You are a technical interviewer evaluating a student.
-
-Question:
-{question}
-
-Student's Answer:
-{student_answer}
-
-Evaluate the answer using this structure:
-
-1. Correctness
-2. What the student did well
-3. What is wrong or missing
-4. Correct explanation
-5. Interview tip
-6. Score out of 10
-
-Be honest but beginner-friendly.
-"""
-
-    response = llm.invoke(prompt)
-    return response.text
-
-
-@tool
-def create_study_plan(goal: str, days: int) -> str:
-    """Create a practical day-by-day placement preparation plan."""
-
-    prompt = f"""
-You are CareerPilot AI, an AI placement preparation assistant.
-
-Create a practical placement preparation study plan.
-
-Goal:
-{goal}
-
-Number of days:
-{days}
-
-For each day include:
-
-1. Topics to study
-2. Practice tasks
-3. Coding/DSA practice
-4. Revision task
-
-Keep the plan realistic for a college student.
-Gradually increase the difficulty.
-"""
-
-    response = llm.invoke(prompt)
-    return response.text
-
-
-# ============================================================
-# 2. INITIALIZE GEMINI
+# 1. GEMINI
 # ============================================================
 
 GOOGLE_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if not GOOGLE_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable is not set.")
-
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.6-flash",
@@ -153,16 +29,117 @@ llm = ChatGoogleGenerativeAI(
 
 
 # ============================================================
-# 3. CREATE CAREERPILOT AGENT
+# 2. TOOLS
 # ============================================================
+
+@tool
+def generate_dsa_questions(topic: str) -> str:
+    """Generate 5 placement-level DSA questions on a topic."""
+
+    prompt = f"""
+Generate 5 DSA questions on {topic}.
+
+Difficulty:
+- 2 Easy
+- 2 Medium
+- 1 Interview-level
+
+For each question provide:
+1. Question
+2. Difficulty
+3. Expected concept
+
+Do not provide solutions.
+"""
+
+    response = llm.invoke(prompt)
+    return response.content
+
+
+@tool
+def generate_java_questions(topic: str) -> str:
+    """Generate 5 Java interview questions on a topic."""
+
+    prompt = f"""
+Generate 5 Java interview questions on {topic}.
+
+Difficulty:
+- 2 Easy
+- 2 Medium
+- 1 Interview-level
+
+For each question provide:
+1. Question
+2. Difficulty
+3. Expected concept
+
+Do not provide solutions.
+"""
+
+    response = llm.invoke(prompt)
+    return response.content
+
+
+@tool
+def create_study_plan(goal: str) -> str:
+    """Create a placement preparation study plan."""
+
+    prompt = f"""
+Create a practical placement preparation plan for:
+
+Goal:
+{goal}
+
+Include:
+1. Topics to study
+2. Practice tasks
+3. DSA/coding practice
+4. Revision
+
+Keep it realistic for a college student.
+"""
+
+    response = llm.invoke(prompt)
+    return response.content
+
+
+@tool
+def evaluate_answer(answer: str) -> str:
+    """Evaluate a student's technical interview answer."""
+
+    prompt = f"""
+You are a technical interviewer.
+
+Evaluate this student's answer:
+
+{answer}
+
+Give:
+1. Correctness
+2. What was done well
+3. What is wrong or missing
+4. Correct explanation
+5. Interview tip
+6. Score out of 10
+
+Be honest and beginner-friendly.
+"""
+
+    response = llm.invoke(prompt)
+    return response.content
+
 
 tools = [
     generate_dsa_questions,
     generate_java_questions,
-    evaluate_answer,
-    create_study_plan
+    create_study_plan,
+    evaluate_answer
 ]
 
+
+# ============================================================
+# 3. CAREERPILOT AGENT
+# ============================================================
 
 agent = create_agent(
     model=llm,
@@ -170,53 +147,17 @@ agent = create_agent(
     system_prompt="""
 You are CareerPilot AI, an AI placement preparation assistant.
 
-Your purpose is to help students prepare for technical placements.
+Help students prepare for technical placements.
 
-You have access to these capabilities:
+You can:
+- Generate DSA questions
+- Generate Java interview questions
+- Evaluate interview answers
+- Create placement study plans
 
-1. DSA Question Generator
-   - Arrays
-   - Strings
-   - Linked Lists
-   - Stacks
-   - Queues
-   - Trees
-   - Graphs
-   - Sorting
-   - Searching
-   - Algorithms
-   - Coding questions
+Use the appropriate tool when needed.
 
-2. Java Interview Question Generator
-   - OOP
-   - Classes and objects
-   - Inheritance
-   - Polymorphism
-   - Abstraction
-   - Encapsulation
-   - Collections
-   - Exceptions
-   - Multithreading
-   - Strings
-   - Other Java interview concepts
-
-3. Answer Evaluator
-   - Evaluate technical interview answers
-   - Identify mistakes
-   - Explain missing concepts
-   - Give interview tips
-   - Give a score out of 10
-
-4. Study Planner
-   - Placement preparation plans
-   - Day-by-day schedules
-   - DSA + Java preparation plans
-   - Revision plans
-
-Use the appropriate tool whenever the student's request matches one
-of these capabilities.
-
-For general placement-related questions, answer directly.
+For normal placement questions, answer directly.
 
 Keep responses clear, practical and beginner-friendly.
 """
@@ -224,7 +165,7 @@ Keep responses clear, practical and beginner-friendly.
 
 
 # ============================================================
-# 4. FORMAT INPUT FOR THE AGENT
+# 4. INPUT
 # ============================================================
 
 class AgentInput(BaseModel):
@@ -243,7 +184,7 @@ def format_for_agent(x) -> dict:
 
 
 # ============================================================
-# 5. EXTRACT FINAL RESPONSE
+# 5. OUTPUT
 # ============================================================
 
 def extract_text_response(agent_output: dict) -> str:
@@ -253,30 +194,18 @@ def extract_text_response(agent_output: dict) -> str:
 
     messages = agent_output.get("messages")
 
-    if messages is None:
-
-        for value in agent_output.values():
-
-            if isinstance(value, dict) and "messages" in value:
-
-                messages = value["messages"]
-                break
-
     if messages:
-
         last = messages[-1]
+        content = getattr(last, "content", None)
 
-        return getattr(
-            last,
-            "content",
-            str(last)
-        )
+        if content:
+            return str(content)
 
     return str(agent_output)
 
 
 # ============================================================
-# 6. CREATE LANGSERVE CHAIN
+# 6. LANGSERVE CHAIN
 # ============================================================
 
 formatted_agent_chain = (
@@ -290,22 +219,18 @@ formatted_agent_chain = (
 
 
 # ============================================================
-# 7. FASTAPI APPLICATION
+# 7. FASTAPI
 # ============================================================
 
 app = FastAPI(
     title="CareerPilot AI",
     version="1.0",
-    description=(
-        "An AI placement preparation agent "
-        "using Gemini, LangChain tools and LangServe."
-    )
+    description="An AI placement preparation agent using Gemini, LangChain tools and LangServe."
 )
 
 
 @app.get("/")
 def root():
-
     return {
         "message": "CareerPilot AI is running!",
         "website": "/agent/playground/",
@@ -314,7 +239,7 @@ def root():
 
 
 # ============================================================
-# 8. ADD LANGSERVE ROUTE
+# 8. LANGSERVE
 # ============================================================
 
 add_routes(
@@ -325,17 +250,12 @@ add_routes(
 
 
 # ============================================================
-# 9. RUN APPLICATION
+# 9. RUN
 # ============================================================
 
 if __name__ == "__main__":
 
-    port = int(
-        os.environ.get(
-            "PORT",
-            8000
-        )
-    )
+    port = int(os.environ.get("PORT", 8000))
 
     uvicorn.run(
         app,
