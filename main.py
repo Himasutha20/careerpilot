@@ -26,15 +26,6 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=GOOGLE_API_KEY,
     temperature=0
 )
-print("MODEL:", llm.model)
-print("API KEY LOADED:", bool(GOOGLE_API_KEY))
-
-try:
-    test_response = llm.invoke("Say hello in one sentence.")
-    print("DIRECT GEMINI TEST:", test_response.content)
-except Exception as e:
-    print("DIRECT GEMINI ERROR:", repr(e))
-
 # ============================================================
 # 2. TOOLS
 # ============================================================
