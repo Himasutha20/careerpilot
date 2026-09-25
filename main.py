@@ -199,14 +199,27 @@ def extract_text_response(agent_output: dict) -> str:
     if not isinstance(agent_output, dict):
         return str(agent_output)
 
+    # Direct messages
     messages = agent_output.get("messages")
+
+    # Nested messages from create_agent
+    if messages is None:
+        model_output = agent_output.get("model")
+
+        if isinstance(model_output, dict):
+            messages = model_output.get("messages")
 
     if messages:
         last = messages[-1]
-        content = getattr(last, "content", None)
+        content = getattr(last, "content", "")
 
-        if content:
-            return str(content)
+        # Gemini returns content as a list of blocks
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block.get("text", "")
+
+        return str(content)
 
     return str(agent_output)
 
